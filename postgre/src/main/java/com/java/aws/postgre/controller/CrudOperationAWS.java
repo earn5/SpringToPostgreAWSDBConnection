@@ -10,7 +10,7 @@ import org.springframework.web.bind.annotation.RestController;
 
 
 @RestController
-public class crudOperationAWS {
+public class CrudOperationAWS {
 
     @Autowired
     UserRepo userRepo;

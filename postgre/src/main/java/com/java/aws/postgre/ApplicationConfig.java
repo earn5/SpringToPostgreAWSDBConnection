@@ -1,16 +1,16 @@
 package com.java.aws.postgre;
 
-import com.amazonaws.auth.AWSStaticCredentialsProvider;
-import com.amazonaws.auth.BasicAWSCredentials;
-import com.amazonaws.services.secretsmanager.AWSSecretsManager;
-import com.amazonaws.services.secretsmanager.AWSSecretsManagerClientBuilder;
-import com.amazonaws.services.secretsmanager.model.GetSecretValueRequest;
-import com.amazonaws.services.secretsmanager.model.GetSecretValueResult;
+import com.amazonaws.secretsmanager.caching.SecretCache;
+import org.springframework.boot.jdbc.DataSourceBuilder;
+import software.amazon.awssdk.auth.credentials.AwsBasicCredentials;
+import software.amazon.awssdk.auth.credentials.StaticCredentialsProvider;
+import software.amazon.awssdk.regions.Region;
+import software.amazon.awssdk.services.secretsmanager.SecretsManagerClient;
 import com.google.gson.Gson;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
-import org.springframework.boot.jdbc.DataSourceBuilder;
+import org.springframework.context.annotation.Primary;
 
 import javax.sql.DataSource;
 
@@ -24,14 +24,16 @@ public class ApplicationConfig {
     private String secretKey;
 
     private Gson gson = new Gson();
+    private SecretCache cache;
 
     @Bean
+    @Primary
     public DataSource dataSource() {
         AwsSecrets secrets = getSecret();
         System.out.println("Host Name: " + secrets.getHost());
         return DataSourceBuilder
                 .create()
-                .url("jdbc:postgresql://" + secrets.getHost() + "/database_broadridge?sslmode=disable")
+                .url("jdbc:postgresql://" + secrets.getHost() + "/Database_Name?sslmode=disable")
                 .username(secrets.getUsername())
                 .password(secrets.getPassword())
                 .driverClassName("org.postgresql.Driver")
@@ -39,27 +41,20 @@ public class ApplicationConfig {
     }
 
     private AwsSecrets getSecret() {
-        String secretName = "dev/postgresDB";
-        String region = "us-east-1";
+        String secretName = "SecreteName";
+        Region region = Region.US_EAST_1;
 
-        AWSSecretsManager client = AWSSecretsManagerClientBuilder.standard()
-                .withRegion(region)
-                .withCredentials(new AWSStaticCredentialsProvider(new BasicAWSCredentials(accessKey, secretKey)))
-                .build();
-
-        GetSecretValueRequest getSecretValueRequest = new GetSecretValueRequest()
-                .withSecretId(secretName);
-        GetSecretValueResult getSecretValueResult = null;
-
-        try {
-            getSecretValueResult = client.getSecretValue(getSecretValueRequest);
-        } catch (Exception e) {
-            throw new RuntimeException("Failed to retrieve secret from AWS Secrets Manager", e);
+        if (cache == null) {
+            SecretsManagerClient client = SecretsManagerClient.builder()
+                    .region(region)
+                    .credentialsProvider(StaticCredentialsProvider.create(AwsBasicCredentials.create(accessKey, secretKey)))
+                    .build();
+            cache = new SecretCache(client);
         }
 
-        if (getSecretValueResult.getSecretString() != null) {
-            String secret = getSecretValueResult.getSecretString();
-            return gson.fromJson(secret, AwsSecrets.class);
+        String secretString = cache.getSecretString(secretName);
+        if (secretString != null) {
+            return gson.fromJson(secretString, AwsSecrets.class);
         }
 
         return null;
